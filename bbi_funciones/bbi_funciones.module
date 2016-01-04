@@ -1,0 +1,90 @@
+<?php
+
+
+/**
+ * Función que captura el formulario de edición de una solicitud de genotipado para mostrar las chapas que tiene disponibles.
+ */
+function bbi_funciones_form_alter(&$form, &$form_state, $form_id) {
+    if($form_id != 'solicitud_genotipado_node_form') return;
+    //Comprobamos que sea en editar y no al crear uno nuevo.
+    $node = $form_state['node'];
+    if (!isset($node->nid) || isset($node->is_new)) return;    
+        
+    if($form_id != 'solicitud_genotipado_node_form') return;
+    $solicitudId = $form_state;
+    
+    //Vamos a ver si tiene chapa
+    $chapaIdDefault = isset($form['field_solicitud_gen_chapa']['und']['#default_value'][0]) ? $form['field_solicitud_gen_chapa']['und']['#default_value'][0] : false;
+    //dpm($chapaIdDefault);
+    
+    //Si tiene chapa quitamos todos los elementos del select dejando solo la chapa.
+    if($chapaIdDefault) {
+        foreach ($form['field_solicitud_gen_chapa']['und']['#options'] as $idChapa => $tituloChapa) {
+            //también se podria desactivar el select para que no puedan cambiar el valor
+            if($idChapa != $chapaIdDefault) unset($form['field_solicitud_gen_chapa']['und']['#options'][$idChapa]);
+        }
+    } else {        
+        //Si no tiene chapa le dejamos solo las que no tengan fecha de entrega, 
+        //voy ha hacer una consulta directamente a base de datos en vez de cargar chapa por chapa para ver la fecha, saí será mas lijero.
+        //Vaciamos el array de chapas del form
+        unset($form['field_solicitud_gen_chapa']['und']['#options']);
+        //Cogemos las chapas sin fecha de entrega y se lo metemos al form
+        $form['field_solicitud_gen_chapa']['und']['#options'] = bbi_funciones_chapas_sin_solicitud();
+    }
+}
+
+/**
+ * Función que al actualizar una solicitud y tiene chapa y no tiene fecha de entrega, le mete la fecha de netrega
+ * Se hace cuando el administrativo le da la chapa al usuario...
+ */
+function bbi_funciones_node_update($node) {
+    if($node->type == 'solicitud_genotipado') {
+        if(isset($node->field_solicitud_gen_chapa['und'][0]['target_id'])) {
+            $chapa = node_load($node->field_solicitud_gen_chapa['und'][0]['target_id']);
+            if(!isset($chapa->field_fecha_entrega_chapa['und'][0])) {
+                $chapa->field_fecha_entrega_chapa['und'][0] = bbi_funciones_getFecha('T');
+                //dpm($chapa);
+                node_save($chapa);
+            }
+        }
+    }
+}
+
+/**
+ * Función que crea un array para meter una fecha estilo
+ * @return array[] fecha
+ */
+function bbi_funciones_getFecha($formato = ' ') {
+    //El formato es que si viene vacio le mete un espacio si no le metemos una T
+    $fecha = array();
+    //Si viene fecha le metemos la que viene si no, le metemos la de ahora.
+    $date = date_now('UTC');
+    $fecha['value'] = str_replace(" ", $formato, date_format($date, "Y-m-d H:i:s"));
+    $fecha['timezone'] = "Europe/Madrid";
+    $fecha['timezone_db'] = "Europe/Madrid";
+    $fecha['date_type'] = "datetime";
+    return $fecha;
+}
+
+/**
+ * Función que devuleve un array con las chapas sin fecha de entrega
+ */
+function bbi_funciones_chapas_sin_solicitud() {
+    $chapasSinFechaDeEntrega = array('_none' => '-Ninguna-');
+    $query = db_select('node', 'ch');
+    $query->leftJoin('field_data_field_fecha_entrega_chapa', 'f', 'ch.nid = f.entity_id');  
+    $query->leftJoin('field_data_field_chapa_solicitud_genotipado', 's', 'ch.nid = s.entity_id');  
+    
+    $result = $query
+        ->fields('ch', array('nid', 'title'))
+        ->isNull('f.field_fecha_entrega_chapa_value')
+        ->isNull('s.field_chapa_solicitud_genotipado_target_id')
+        ->condition('ch.type', 'chapa', '=')
+        /*->condition('type', 'solicitud_genotipado', '=')
+        ->condition('field_vial_estado_value', 1, '=')*/
+        ->execute();
+    while($record = $result->fetchAssoc()) {
+        $chapasSinFechaDeEntrega[$record['nid']] = $record['title'];
+    } 
+    return $chapasSinFechaDeEntrega;
+}

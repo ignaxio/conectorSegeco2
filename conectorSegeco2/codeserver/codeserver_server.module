@@ -1,0 +1,210 @@
+<?php
+
+/*
+ * @file
+ * Code Server module for Drupal by netgenius.co.uk
+ * This .module is currently compatible with both D6 and D7.
+ */
+
+/*
+ * Implement hook_menu.
+ */
+function codeserver_server_menu() {
+  $items = array();
+
+  $items['codeserver/server'] = array(
+    'title' => 'Code Server',
+    'page callback' => 'codeserver_server_page',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  return $items;
+}
+
+// Serve the page, handling decoding and encoding.
+function codeserver_server_page($service_id = 'default') {
+  // Fetch $request from POST data.
+  $request = $_POST['request'];
+
+  // Set a custom Content-Type header (handle both D7 and D6).
+  $content_type = 'x-drupal-codeserver';
+  if (VERSION >= 7.0) {
+    drupal_add_http_header('Content-Type', $content_type);
+  }
+  else {
+    drupal_set_header('Content-Type: ' . $content_type);
+  }
+
+  // Get configuration for this page.
+  $config = codeserver_get_config($service_id, 'server');
+
+  // Default to no access.
+  $allow_access = FALSE;
+  // Check access...
+  if ($config) {
+    // Check if client IP address is allowed access.
+    $allowed_ips = $config->allowed_ips;
+    if ($allowed_ips == 'ALL') {
+      $allow_access = TRUE;
+    }
+    else {
+      if (!is_array($allowed_ips)) {
+        $allowed_ips = array($allowed_ips);
+      }
+      if (in_array($_SERVER['REMOTE_ADDR'], $allowed_ips)) {
+        $allow_access = TRUE;
+      }
+      else {
+        codeserver_report_error('allowed_ips');
+      }
+    }
+  }
+
+  // If allowed, process the request and return the result.
+  if ($allow_access) {
+    // Set up the packager.
+    $packager = new CodeServerPackager($config);
+    // Get the decoded request.
+    $request = $packager->decode($request);
+    // Process the request.
+    $result = codeserver_server_execute($request, $config);
+    // Encode and output the result.
+    echo $packager->encode($result);
+  }
+  else {
+    // Output nothing at all (could this be an intrusion attempt or probe?).
+    echo '';
+  }
+}
+
+
+// Process the request.
+function codeserver_server_execute($request, $config) {
+
+  // Define the return value.
+  $return = FALSE;
+
+  // If the request is for a simple function call...
+  if (isset($request->func)) {
+    // Call this function if allowed.
+    if (codeserver_server_function_allowed($request->func, $config)) {
+      $return = call_user_func_array($request->func, $request->args);
+    }
+  }
+  // If the request is for multiple functions to call...
+  elseif (isset($request->functions)) {
+    $return = array();
+    foreach ($request->functions as $key => $args) {
+      // Get the function name.
+      $func = array_shift($args);
+      // Call this function if allowed, appending the result to the $return array.
+      if (codeserver_server_function_allowed($func, $config)) {
+        $result = call_user_func_array($func, $args);
+        // Pass back the result if a string key was given by the client.
+        if (is_string($key)) {
+          $return[$key] = $result;
+        }
+      }
+      else {
+        // Return FALSE as result.
+        $return[$key] = FALSE;
+      }
+    }
+  }
+  // Else if we have code to evaluate (possibly with variables) ...
+  elseif (isset($request->code)) {
+    if (codeserver_server_function_allowed('eval', $config)) {
+      $return = codeserver_server_eval($request->code, $request->vars);
+    }
+  }
+  // Something else? That's an invalid request.
+  else {
+    codeserver_report_error('invalid_request', $config);
+  }
+
+  // Get all messages and clear the message queue;
+  $messages = drupal_get_messages(NULL, TRUE);
+  // If disabled in config, don't return messages to the client.
+  if (!$config->show_messages) {
+    $messages = array();
+  }
+
+  // Return $return value plus $messages.
+  return (object) compact('return', 'messages');
+}
+
+// Process the request.
+function codeserver_server_function_allowed($func, $config) {
+  // Check that this function is allowed.
+  $allowed_functions = $config->allowed_functions;
+  if ($allowed_functions == 'ALL') {
+    return TRUE;
+  }
+  if (!is_array($allowed_functions)) {
+    $allowed_functions = array($allowed_functions);
+  }
+
+  // Is this function in the list of allowed functions?
+  if (array_search($func, $allowed_functions) !== FALSE) {
+    return TRUE;
+  }
+
+  // Report error and return FALSE.
+  $msg = sprintf('allowed_functions (%s)', $func);
+  return codeserver_report_error($msg, $config);
+}
+
+/*
+ * Evaluate PHP code.
+ *
+ * $code may be an array in which case each element is evaluated in turn
+ * and return values are passed back to the client as an array.
+ * If the keys of $code array are strings, they are used as keys in the return array.
+ * If they are numeric, the return values are discarded.
+ * @todo Explain that better!
+ *
+ */
+
+function codeserver_server_eval($code, $vars) {
+  // Set up storage object for our local data. This avoids name conflicts with variables used in $code.
+  // Name $CS here does not confirm to Drupal coding standards - this is deliberate!
+  $CS = (object) array(
+    'multi' => is_array($code),
+    'code' => is_array($code)? $code : array('code' => $code),
+    'result' => array(),
+  );
+
+  // Get variables form $vars.
+  // Note, deliberately no name prefix here - caller may use any variable name except $CS.
+  extract($vars);
+
+  // Loop through code to evaluate.
+  foreach ($CS->code as $CS->item => $CS->php) {
+    // Evaluate the code...
+    if (is_string($CS->item)) {
+      // Evaluate and store the result.
+      $CS->result[$CS->item] = eval($CS->php . ';');
+    }
+    else {
+      // Just evaluate, discard the result.
+      eval($CS->php . ';');
+    }
+
+    // Check for parse error.
+    $CS->eval_error = error_get_last();
+    if ($CS->eval_error) {
+      // Set up variables for t().
+      $CS->tvars = array(
+        '!msg'  => $CS->eval_error['message'],
+        '!line' => $CS->eval_error['line'],
+        '%item' => $CS->item,
+      );
+      // Generate an error message.
+      trigger_error(t('!msg (item %item, line !line)', $CS->tvars), E_USER_ERROR);
+      // Halt processing here (just like normal PHP flow).
+      break;
+    }
+  }
+  // Return result as array or single value.
+  return ($CS->multi)? $CS->result : $CS->result['code'];
+}

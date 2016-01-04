@@ -1,0 +1,83 @@
+<?php
+
+require_once 'include/conectorSegeco2_funcionesDeApoyo.inc';
+require_once 'include/conectorSegeco2_allowed_functions.inc';
+
+function conectorSegeco2_node_insert($node) {
+    
+    insert_item_into_buffer($node);
+    
+}
+
+/**
+ * Funcion para configurar los menus
+ */
+function conectorSegeco2_menu() {
+    $items = array();
+    $items['conectorSegeco2/pagina-de-pruebas'] = array(
+        'title' => 'Code Server Test (and example use)',
+        'page callback' => 'conectorSegeco2_pruebas',
+        'access callback' => 'user_access',
+        'access arguments' => array('access content'),
+        'type' => MENU_CALLBACK,
+    );    
+    $items['admin/config/services/web_server_config'] = array(
+        'title'             => t('Web servers'),
+        'description'       => t('Configure web servers'),
+        'page callback'     => 'conectorSegeco2_web_servers_admin',
+        'access arguments'  => array('access content'),
+        'file'              => 'admin/conectorSegeco2_web_servers.inc'
+    );
+    $items['admin/config/services/web_server_config/html'] = array(
+        'title' => t('web servers'),
+        'weight' => 1,
+        'type' => MENU_DEFAULT_LOCAL_TASK,
+    );
+    $items['admin/config/services/web_server_config/new'] = array(
+        'title' => t('New web server'),
+        'description' => t('Crear un nuevo servidor'),
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array('conectorSegeco2_new_server_admin'),
+        'access arguments'  => array('access content'),
+        'weight' => 2,
+        'type' => MENU_LOCAL_TASK,
+        'file' => 'admin/conectorSegeco2_new_server.inc',
+    );
+    $items['admin/config/services/web_server_config/delete'] = array(
+        'title' => t('Drop a web server'),
+        'description' => t('Eliminar un servidor de la configuración'),
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array('conectorSegeco2_drop_server_admin'),
+        'access arguments'  => array('access content'),
+        'weight' => 3,
+        'type' => MENU_LOCAL_TASK,
+        'file' => 'admin/conectorSegeco2_drop_server.inc',
+    );
+    //Hay que crear tantos servidores como tenga el cliente
+    $codeserver_configs = variable_get('codeserver_configs');
+    $contador = 4;
+    foreach ($codeserver_configs as $nombreServidor => $configuraciones) {
+        $items['admin/config/services/web_server_config/' . $nombreServidor] = array(
+            'title'             => t('Configurar ' . $nombreServidor),
+            'description'       => t('Configuración del cliente ' . $nombreServidor),
+            'page callback'     => 'drupal_get_form',
+            'page arguments'    => array('conectorSegeco2_server_config_admin', $nombreServidor), 
+            'access arguments'  => array('access content'),
+            'weight'            => $contador,
+            'type'              => MENU_LOCAL_TASK,
+            'file'              => 'admin/conectorSegeco2_server_config.inc'
+        );
+        $contador++;
+    }
+    return $items;
+}
+
+//Funcion para imprimir variables
+function conectorSegeco2_pruebas() {
+    
+//    
+//    $node = node_load(35397);
+////    print_r(date('j-m-Y', $node->created));
+//    conectorSegeco2_node_insert($node);
+    
+}

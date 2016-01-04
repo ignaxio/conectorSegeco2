@@ -1,0 +1,10 @@
+<?php
+
+
+function conectorSegeco2_enable() {
+
+  drupal_set_message(t('Módulo instalado correctamente.'));
+  $tvars = array('!!!Configura el servidor ahora!!!!!' => l(t('!!!Configura el servidor ahora!!!!!'), 'admin/config/services/web_server_config'));
+  drupal_set_message(t('!!!Configura el servidor ahora!!!!!', $tvars));
+}
+

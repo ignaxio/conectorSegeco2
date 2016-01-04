@@ -1,0 +1,6 @@
+name = "bbi_funciones"
+description = "Funciones necesarias"
+package = "BBI"
+
+core = 7.x
+version = "7.x-1.1"

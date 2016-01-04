@@ -1,0 +1,161 @@
+<?php
+/*
+ * @file
+ * Code Server module for Drupal by netgenius.co.uk
+ * This .module is currently compatible with both D6 and D7.
+ */
+
+/*
+ * CodeServerPackager class.
+ */
+class CodeServerPackager {
+
+  // Initialise.
+  function __construct($config) {
+    $this->config = $config;
+  }
+
+  // Encode data.
+  public function encode($data) {
+    $encoded_data = $this->encrypt(gzcompress(serialize($data)));
+    return $encoded_data;
+  }
+
+  // Decode data.
+  public function decode($encoded_data) {
+    // Decrypt and test for failure.
+    $decoded_data = $this->decrypt($encoded_data);
+    if ($decoded_data === FALSE) {
+      return $this->report_error('decrypt');
+    }
+
+    // Uncompress and test for failure.
+    $uncompressed_data = gzuncompress($decoded_data);
+    if ($uncompressed_data === FALSE) {
+      return $this->report_error('uncompress');
+    }
+
+    // Unserialize and test for failure.
+    $data = unserialize($uncompressed_data);
+    if ($data === FALSE) {
+      return $this->report_error('unserialize');
+    }
+
+    return $data;
+  }
+
+  // Utility to report error.
+  private function report_error($msg) {
+    return codeserver_report_error($msg, $this->config);
+  }
+
+  // Encrypt and encode.
+  private function encrypt($data) {
+    $config = $this->config;
+    return openssl_encrypt($data , $config->encrypt_method, $config->encrypt_key, 0, $config->encrypt_iv);
+  }
+
+  // Decode and decrypt.
+  private function decrypt($data) {
+    $config = $this->config;
+    return openssl_decrypt($data , $config->encrypt_method, $config->encrypt_key, 0, $config->encrypt_iv);
+  }
+
+}
+
+
+/*
+ * Log an error.
+ * @todo Generate more complete messages, triggering on the value of $process.
+ */
+function codeserver_report_error($process, $config = FALSE) {
+  $tvars = array(
+    '@process' => $process,
+    '@client' => $_SERVER['REMOTE_ADDR'],
+  );
+  $message = 'Error: @process failed. Client: @client';
+  // Log the message in the watchdog log.
+  watchdog('codeserver', $message, $tvars, WATCHDOG_ERROR);
+  // If the user has suitable access, display the message too.
+  if (user_access('access site reports') || !empty($config->show_messages)) {
+    drupal_set_message('[CodeServer] ' . t($message, $tvars), 'error');
+  }
+  // Always return FALSE so that this can be used by caller as its own return value.
+  return FALSE;
+}
+
+// Load the configuration for the given service_id, or verify a given configuration.
+function codeserver_get_config($service_id, $mode) {
+  // $service_id is either the id of a service configuration or an array of settings to use.
+  if (is_string($service_id)) {
+    $configs = variable_get('codeserver_configs', array());
+    $config = isset($configs[$service_id])? $configs[$service_id] : FALSE;
+  }
+  else {
+    // $service_id holds the config itself.
+    $config = $service_id;
+    $service_id = isset($config['service_id'])? $config['service_id'] : FALSE;
+  }
+
+  // Check for validity.
+  if (!is_array($config)) {
+    $msg = sprintf('get config (%s)', $service_id);
+    return codeserver_report_error($msg);
+  }
+
+  // Define defaults.
+  $defaults = array(
+    'show_messages' => TRUE,
+    'encrypt_method' => 'AES256',
+  );
+
+  // Define required elements.
+  $required = array(
+    'encrypt_key',
+    'encrypt_iv',
+  );
+
+  // Add further elements depending on $mode (server or client).
+  if ($mode == 'client') {
+    $defaults += array(
+      'service_id' => $service_id,
+      'request_timeout' => 10,
+    );
+    $required2 = array(
+      'service_id',
+      'server',
+    );
+  }
+  else {
+    // $mode is 'server'.
+    $defaults += array(
+      'allowed_ips' => array('127.0.0.1'),
+      'allowed_functions' => array('time'),
+    );
+    $required2 = array(
+      'allowed_ips',
+      'allowed_functions',
+    );
+  }
+  $required = array_merge($required, $required2);
+
+
+  // Merge defaults.
+  $config += $defaults;
+
+  // Check that config has all the $required items.
+  foreach ($required as $item) {
+    if (empty($config[$item])) {
+      $msg = sprintf('get config (%s, %s)', $service_id, $item);
+      codeserver_report_error($msg);
+      $failed = TRUE;
+    }
+  }
+  // If config is invalid, bail out now.
+  if (isset($failed)) {
+    return FALSE;
+  }
+
+  // Return config as an object.
+  return (object) $config;
+}

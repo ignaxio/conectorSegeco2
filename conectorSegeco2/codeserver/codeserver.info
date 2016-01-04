@@ -1,0 +1,21 @@
+name = "CodeServer common"
+description = "A framework for code-level communication between Drupal sites."
+package = "CodeServer"
+
+core = 7.x
+version = "7.x-1.0"
+
+; We need at least PHP 5.3.0 for openssl_encrypt/decrypt.
+php = 5.3
+
+; configure = admin/codeserver
+
+; files[] = some_file.inc
+; dependencies[] = other_module
+
+; Information added by Drupal.org packaging script on 2015-08-21
+version = "7.x-1.0-beta1"
+core = "7.x"
+project = "codeserver"
+datestamp = "1440122343"
+

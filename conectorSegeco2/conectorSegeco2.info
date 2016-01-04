@@ -1,0 +1,12 @@
+name = "conector Segeco 2"
+description = "Conector Segeco tipo 2, es el conector tipo Xativa"
+package = "BBI"
+
+core = 7.x
+version = "7.x-1.1"
+
+; configure = admin/codeserver
+
+; files[] = some_file.inc
+dependencies[] = codeserver_server
+; dependencies[] = codeserver_client
